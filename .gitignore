@@ -1,1 +1,3 @@
 *.har
+output_files/invista_completeshipment.json
+output_files/invista_*

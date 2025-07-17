@@ -1,6 +1,10 @@
-import os
 import json
+import os
 from haralyzer import HarParser
+
+input_dir = './input_files'
+output_dir = './output_files'
+os.makedirs(output_dir, exist_ok=True)
 
 def extract_requests_responses_from_har(file_path):
     with open(file_path, 'r', encoding='utf-8') as har_file:
@@ -8,41 +12,51 @@ def extract_requests_responses_from_har(file_path):
         entries = har_data['log']['entries']
         return entries
 
-def process_all_har_files(input_folder, output_folder):
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
+for filename in os.listdir(input_dir):
+    if filename.endswith('.har'):
+        har_file_path = os.path.join(input_dir, filename)
+        entries = extract_requests_responses_from_har(har_file_path)
 
-    for filename in os.listdir(input_folder):
-        if filename.endswith('.har'):
-            har_file_path = os.path.join(input_folder, filename)
-            output_filename = 'invista_' + os.path.splitext(filename)[0] + '.json'
-            output_file_path = os.path.join(output_folder, output_filename)
+        filtered_entries = []
+        for entry in entries:
+            url = entry['request'].get('url', '')
+            mime = entry['response']['content'].get('mimeType', '')
 
-            print(f"Procesando: {filename}")
+            if not ('sap/opu/odata' in url or '/sap/hana' in url or 'PM_SRV' in url):
+                continue
 
-            try:
-                entries = extract_requests_responses_from_har(har_file_path)
+            if mime in ['text/css', 'application/javascript']:
+                continue
 
-                filtered_entries = [
-                    entry for entry in entries
-                    if 'sap/opu/odata' in entry['request']['url'] or '/sap/hana' in entry['request']['url']
-                ]
-
-                output_data = []
-                for entry in filtered_entries:
-                    output_data.append({
-                        'request': entry['request'],
-                        'response': entry['response']
+            if '$metadata' in url:
+                headers = entry['response'].get('headers', [])
+                has_ct_header = any(
+                    h.get('name') == 'Content-Type' and h.get('value') == 'application/xml'
+                    for h in headers
+                )
+                if not has_ct_header:
+                    headers.insert(0, {
+                        'name': 'Content-Type',
+                        'value': 'application/xml'
                     })
+                    entry['response']['headers'] = headers
 
-                with open(output_file_path, 'w', encoding='utf-8') as output_file:
-                    json.dump(output_data, output_file, indent=4, ensure_ascii=False)
+            filtered_entries.append(entry)
 
-                print(f"Guardado en: {output_file_path}")
-            except Exception as e:
-                print(f"Error procesando {filename}: {e}")
+        output_data = []
+        for entry in filtered_entries:
+            request = entry['request']
+            response = entry['response']
+            request_info = {
+                'request': request,
+                'response': response
+            }
+            output_data.append(request_info)
 
-if __name__ == "__main__":
-    input_folder = './input_files'
-    output_folder = './output_files'
-    process_all_har_files(input_folder, output_folder)
+        output_filename = 'invista_' + os.path.splitext(filename)[0] + '.json'
+        output_file_path = os.path.join(output_dir, output_filename)
+
+        with open(output_file_path, 'w') as output_file:
+            json.dump(output_data, output_file, indent=4)
+
+        print(f"Los datos se han guardado en el archivo: {output_file_path}")
